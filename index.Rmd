@@ -1,0 +1,206 @@
+---
+title: "ESA Species Mapping"
+output:
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    css: custom.css
+    social: menu
+    df_print: paged
+    navbar:
+      - {title: "CCI", align: left, href: "https://cci-dev.org", target: "_blank"}
+      - {title: "Defenders", align: left, href: "http://www.defenders.org"}
+      - {title: "", icon: "fa-envelope-o fa-lg", align: right, href: "mailto:esa@defenders.org?subject=species mapper"}
+      - {title: "", icon: "fa-github fa-lg", align: right, href: "https://github.com/jacob-ogre/ESA_species_maps"}
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+
+library(DBI)
+library(dplyr)
+library(ecosscraper)
+library(leaflet)
+library(RSQLite)
+library(shiny)
+
+# db connection
+con <- dbConnect(RSQLite::SQLite(), "data/ESA_GBIF.sqlite3")
+
+# This uses the TECP table from when I pulled data from GBIF...it may be out-
+# of-date at the time this app is run, but that's fine because we don't make
+# real-time GBIF API calls for specimen data, so would be missing such data for
+# for newly listed species anyway...
+TECP_table <- readRDS("data/TECP_table.rds")
+
+# A df for name cross-referencing between ECOS names and GBIF
+spp_xref <- readRDS("data/gbif_keys_xref.rds")
+
+# A df linking five-year reviews to species names for reference
+fiveyr_table <- readRDS("data/five_year_table.rds")
+
+```
+
+```{r functions, echo=FALSE}
+remove_zero <- function(df) {
+  if("dec_latitude" %in% names(df)) {
+    filter(df, dec_latitude == 0.0)
+  }
+  if("prim_lat_dec" %in% names(df)) {
+    filter(df, prim_lat_dec == 0.0)
+  }
+}
+```
+
+Inputs {.sidebar}
+-----------------------------------------------------------------------
+
+```{r selector, echo = FALSE}
+species <- sort(unique(TECP_table$names))
+inputPanel(
+  selectInput(
+    "sel_species",
+    label = "Species",
+    choices = species,
+    selected = "Kirtland's Warbler (Setophaga kirtlandii (= Dendroica kirtlandii))"
+  ),
+  
+  checkboxGroupInput(
+    "select_opts",
+    "Layers",
+    choiceNames = 
+      list("placenames", "GBIF", "counties"),
+    choiceValues = 
+      list("place", "gbif", "counties"),
+    selected = c("place", "gbif")
+  ),
+
+  selectInput(
+    "sel_basemap",
+    label = "Basemap",
+    choices = list(
+      "Terrain" = "Stamen.Terrain",
+      "Basic" = "Stamen.TonerLite",
+      "Imagery" = "Esri.WorldImagery"
+    ),
+    selected = "StamenTerrain")
+)
+
+htmlOutput("fiveyr_url")
+
+```
+
+```{r proc_gbif_place, echo=FALSE}
+cur_ecos <- reactive(
+  if(!is.null(input$sel_species)) {
+    filter(TECP_table, names == input$sel_species)
+  } else {
+    NULL
+  }
+)
+
+cur_xref <- reactive(
+  if(!is.null(cur_ecos())) {
+    filter(spp_xref, search == cur_ecos()$species)
+  } else {
+    NULL
+  }
+)
+
+# observe({ print(names(cur_xref())) })
+
+cur_gbif_q <- reactive(
+  if(!is.null(cur_ecos())) {
+    sprintf("SELECT * FROM esa_gbif WHERE taxon_key = '%s'", cur_xref()$key)
+  } else {
+    NULL
+  }
+)
+
+cur_plc_q <- reactive(
+  if(!is.null(cur_ecos())) {
+    sprintf(
+      "SELECT * FROM fiveyr_place WHERE species = '%s'", 
+      cur_ecos()$species
+    )
+  } else {
+    NULL
+  }
+)
+
+cur_gbif <- reactive(
+  if(!is.null(cur_gbif_q())) {
+    dbSendQuery(con, cur_gbif_q()) %>% 
+      dbFetch() %>%
+      filter(!is.na(dec_latitude) & dec_latitude != 0.0)
+  } else {
+    NULL    
+  }
+)
+
+cur_plc <- reactive(
+  if(!is.null(cur_plc_q())) {
+    dbSendQuery(con, cur_plc_q()) %>% 
+      dbFetch()
+  } else {
+    NULL    
+  }
+)
+
+```
+
+```{r fiveyr_proc, echo=FALSE}
+output$fiveyr_url <- reactive({
+  href <- filter(fiveyr_table, Species == cur_ecos()$species)$Doc_Link 
+  paste0(tags$a("Five-year Review", href = href, target = "_blank"))
+})
+```
+
+Row {data-height=1000}
+-----------------------------------------------------------------------
+
+### 
+```{r map, echo=FALSE}
+renderLeaflet({
+  map1 <- leaflet(data = cur_gbif()) %>%
+    addProviderTiles(provider = input$sel_basemap) 
+  
+  if("place" %in% input$select_opts) {
+    map1 <- map1 %>%
+      addCircleMarkers(
+        lng = cur_plc()$prim_long_dec,
+        lat = cur_plc()$prim_lat_dec,
+        weight = 1,
+        opacity = 0.3,
+        color = "red",
+        popup = ~paste0(
+          "<b>Term: ", cur_plc()$terms, "</b><br>",
+          "<smaller><b>Feature class:</b> ", 
+          cur_plc()$feature_class, "</smaller>",
+          "<br><b>Long & Lat:</b><br>",
+          cur_plc()$prim_long_dec, ", ",
+          cur_plc()$prim_lat_dec)
+      )
+  }
+  
+  if("gbif" %in% input$select_opts) {
+    map1 <- map1 %>%
+      addMarkers(
+        lng = cur_gbif()$dec_longitude,
+        lat = cur_gbif()$dec_latitude,
+        popup = ~paste0(
+          "<b>Date: ", as.Date(cur_gbif()$date, origin = "1900-01-01"),
+          "</b><br>",
+          "<smaller><b>Locality:</b> ", cur_gbif()$locality, "</smaller>",
+          "<br><b>Long & Lat:</b><br>",
+          cur_gbif()$dec_longitude, ", ",
+          cur_gbif()$dec_latitude,
+          "<br><b style='color:red'>Coord. issue: ",
+          issues, "</b><br>")
+      )
+  }
+  
+  map1
+})
+```
+
+
