@@ -8,7 +8,7 @@ esa_occ <- readRDS("data/ESA_spp_GBIF-2017-09-25.rds")
 
 con <- dbConnect(RSQLite::SQLite(), "data/ESA_GBIF.sqlite3")
 dbListTables(con)
-dbWriteTable(con, "esa_gbif", esa_occ)
+dbWriteTable(con, "esa_gbif", esa_occ, overwrite = TRUE)
 
 tmp <- dbSendQuery(con, "SELECT * FROM esa_gbif WHERE name = 'Setophaga kirtlandii'")
 KIWA <- dbFetch(tmp)
@@ -42,3 +42,4 @@ saveRDS(TECP_table, file = "data/TECP_table.rds")
 # Prep document tables
 load("data/ECOS_species_tables_2016-12-17.rda")
 saveRDS(fiveyr_table, file = "data/five_year_table.rds")
+saveRDS(recovery_table, file = "data/recovery_table.rds")

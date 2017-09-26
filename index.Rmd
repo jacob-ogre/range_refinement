@@ -16,12 +16,18 @@ runtime: shiny
 
 ```{r setup, include=FALSE}
 
+library(bsplus)
 library(DBI)
 library(dplyr)
 library(ecosscraper)
 library(leaflet)
+library(rio)
 library(RSQLite)
 library(shiny)
+library(shinyBS)
+library(shinydashboard)
+
+# use_bs_tooltip()
 
 # db connection
 con <- dbConnect(RSQLite::SQLite(), "data/ESA_GBIF.sqlite3")
@@ -37,18 +43,11 @@ spp_xref <- readRDS("data/gbif_keys_xref.rds")
 
 # A df linking five-year reviews to species names for reference
 fiveyr_table <- readRDS("data/five_year_table.rds")
+recovery_table <- readRDS("data/recovery_table.rds")
 
 ```
 
 ```{r functions, echo=FALSE}
-remove_zero <- function(df) {
-  if("dec_latitude" %in% names(df)) {
-    filter(df, dec_latitude == 0.0)
-  }
-  if("prim_lat_dec" %in% names(df)) {
-    filter(df, prim_lat_dec == 0.0)
-  }
-}
 ```
 
 Inputs {.sidebar}
@@ -56,7 +55,9 @@ Inputs {.sidebar}
 
 ```{r selector, echo = FALSE}
 species <- sort(unique(TECP_table$names))
-inputPanel(
+wellPanel(
+  tags$b("Data inputs"),
+  hr(),
   selectInput(
     "sel_species",
     label = "Species",
@@ -74,19 +75,72 @@ inputPanel(
     selected = c("place", "gbif")
   ),
 
-  selectInput(
-    "sel_basemap",
-    label = "Basemap",
-    choices = list(
-      "Terrain" = "Stamen.Terrain",
-      "Basic" = "Stamen.TonerLite",
-      "Imagery" = "Esri.WorldImagery"
-    ),
-    selected = "StamenTerrain")
+  checkboxGroupInput(
+    "select_details",
+    "Details",
+    choiceNames = 
+      list("Incl. populated places?"),
+    choiceValues = 
+      list("pop_place"),
+    selected = c("pop_place")
+  ),
+  bsTooltip(
+    id = "select_details", 
+    title = "Populated places tend to have more false-positives"
+  )
 )
 
-htmlOutput("fiveyr_url")
+wellPanel(
+  tags$b("Reference docs"),
+  hr(),
+  htmlOutput("fiveyr_url"),
+  htmlOutput("recovery_url")
+)
 
+wellPanel(
+  tags$b("Download Data"),
+  hr(),
+  fluidRow(
+    column(6,
+      downloadButton(
+        "download_gbif",
+        "GBIF"
+      )
+    ),
+    column(6,
+      downloadButton(
+        "download_geonames",
+        "Places"
+      )
+    )
+  )
+)
+```
+  
+```{r downloads, echo=FALSE}
+output$download_gbif <- downloadHandler(
+  filename=function() {
+    paste0(
+      gsub(cur_xref()$name, pattern = " ", replacement = "_"),
+      "_gbif.xlsx"
+    )
+  },
+  content=function(file) {
+    export(cur_gbif(), file=file)
+  }
+)
+
+output$download_geonames <- downloadHandler(
+  filename=function() {
+    paste0(
+      gsub(cur_xref()$name, pattern = " ", replacement = "_"),
+      "_places.xlsx"
+    )
+  },
+  content=function(file) {
+    export(cur_plc(), file=file)
+  }
+)
 ```
 
 ```{r proc_gbif_place, echo=FALSE}
@@ -105,8 +159,6 @@ cur_xref <- reactive(
     NULL
   }
 )
-
-# observe({ print(names(cur_xref())) })
 
 cur_gbif_q <- reactive(
   if(!is.null(cur_ecos())) {
@@ -139,19 +191,31 @@ cur_gbif <- reactive(
 
 cur_plc <- reactive(
   if(!is.null(cur_plc_q())) {
-    dbSendQuery(con, cur_plc_q()) %>% 
-      dbFetch()
+    q1 <- dbSendQuery(con, cur_plc_q()) %>% 
+      dbFetch() %>%
+      filter(prim_lat_dec != 0.0)
+    if(!("pop_place" %in% input$select_details)) {
+      q1 <- filter(q1, feature_class != "Populated Place" &
+                     feature_class != "Civil")
+    }
+    q1
   } else {
     NULL    
   }
 )
 
+
 ```
 
-```{r fiveyr_proc, echo=FALSE}
+```{r docs_proc, echo=FALSE}
 output$fiveyr_url <- reactive({
   href <- filter(fiveyr_table, Species == cur_ecos()$species)$Doc_Link 
   paste0(tags$a("Five-year Review", href = href, target = "_blank"))
+})
+
+output$recovery_url <- reactive({
+  href <- filter(recovery_table, Species == cur_ecos()$species)$Doc_Link 
+  paste0(tags$a("Recovery Plan", href = href, target = "_blank"))
 })
 ```
 
@@ -169,6 +233,7 @@ renderLeaflet({
       addCircleMarkers(
         lng = cur_plc()$prim_long_dec,
         lat = cur_plc()$prim_lat_dec,
+        radius = 5,
         weight = 1,
         opacity = 0.3,
         color = "red",
@@ -203,4 +268,28 @@ renderLeaflet({
 })
 ```
 
+```{r map_ctrl, echo=FALSE}
+absolutePanel(
+  id = "mapcontrols",
+  class = "float_panel",
+  top = "100px",
+  right = "50px",
+  left = "auto",
+  bottom = "auto",
+  fixed = TRUE,
+  draggable = FALSE,
+  
+  selectInput(
+    "sel_basemap",
+    label = "Basemap",
+    width = "125px",
+    choices = list(
+      "Terrain" = "Stamen.Terrain",
+      "Basic" = "Stamen.TonerLite",
+      "Imagery" = "Esri.WorldImagery"
+    ),
+    selected = "StamenTerrain")
+  
+)
+```
 
