@@ -3,7 +3,7 @@ p {
   font-size: 1.1em;
   font-family: "Open Sans";
   font-weight: 300;
-  padding-left: 10px;
+  padding-left: 1px;
 }
 
 a {
@@ -23,7 +23,7 @@ a:visited {
 }
 
 .modal-body {
-  padding: 0 !important;
+  padding: 10px !important;
 }
 
 /* div.form-group.shiny-input-container {
@@ -92,8 +92,8 @@ a:visited {
 }
 
 .btn-default {
-  background-color: #1967BE !important;
-  border-color: #1967BE !important;
+  background-color: #053189;
+  border-color: #053189;
 }
 
 table.fixedHeader-floating.no-footer {
@@ -128,4 +128,27 @@ table.fixedHeader-floating.no-footer {
 .float_panel:hover {
   opacity: 0.99;
   transition-delay: 0.1;
+}
+
+.help_panel {
+  background-color: transparent;
+  border-radius: 3px;
+  padding: 5px;
+}
+
+.help_btn {
+  background-color: #FF8500;
+  border-color: #FF8500;
+  border-radius: 2px;
+}
+
+.help_btn:hover {
+  background-color: #ffa94d;
+  border-color: #ffa94d;
+}
+
+.limitations {
+  background-color: #EF9A9A;
+  border-radius: 3px;
+  padding: 5px;
 }
