@@ -1,0 +1,449 @@
+---
+title: "ESA Species Mapping"
+output:
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    css: custom.css
+    social: menu
+    df_print: paged
+    navbar:
+      - {title: "CCI", align: left, href: "https://cci-dev.org", target: "_blank"}
+      - {title: "Defenders", align: left, href: "http://www.defenders.org"}
+      - {title: "", icon: "fa-envelope-o fa-lg", align: right, href: "mailto:esa@defenders.org?subject=species mapper"}
+      - {title: "", icon: "fa-github fa-lg", align: right, href: "https://github.com/jacob-ogre/ESA_species_maps"}
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+
+# library(bsplus)
+library(DBI)
+library(dplyr)
+# library(ecosscraper)
+library(leaflet)
+library(rio)
+library(RSQLite)
+library(shiny)
+library(shinyBS)
+library(shinydashboard)
+
+# use_bs_tooltip()
+
+# db connection
+con <- dbConnect(RSQLite::SQLite(), "data/ESA_GBIF.sqlite3")
+
+# This uses the TECP table from when I pulled data from GBIF...it may be out-
+# of-date at the time this app is run, but that's fine because we don't make
+# real-time GBIF API calls for specimen data, so would be missing such data for
+# for newly listed species anyway...
+TECP_table <- readRDS("data/TECP_table.rds")
+
+# A df for name cross-referencing between ECOS names and GBIF
+spp_xref <- readRDS("data/gbif_keys_xref.rds")
+
+# A df linking five-year reviews to species names for reference
+fiveyr_table <- readRDS("data/five_year_table.rds")
+
+# A df linking recovery plans to species names for reference
+recovery_table <- readRDS("data/recovery_table.rds")
+```
+
+```{r help_modal, echo=FALSE}
+observeEvent(input$help, {
+  showModal(modalDialog(
+    title = "Species Mapper Help",
+    br(),
+    p(style="font-weight:700", 
+      "A simple data viewer for geospatial data to help refine occurrence maps 
+      for ESA-listed species."),
+    h3("Usage"),
+    tags$ul(
+      tags$li(
+        "Select a species from the dropdown in the upper-left corner. 
+        You may use backspace/delete to clear the name and then type the name 
+        (it will autocomplete if there is a match);"
+      ),
+      tags$li(
+        "Select which data types you want to view (see Data Sources, 
+        below) using check boxes;"
+      ),
+      tags$li(
+        "Filter out 'populated places' from the 'placenames' data - which may
+        contain more false-positives that cloud a map - if you want;"
+      ),
+      tags$li(
+        "Click on GBIF markers or placename circles to view more data about 
+        those points;"
+      ),
+      tags$li(
+        "As needed, browse the linked documents to find more locality 
+        information, such as habitats, or placenames in context;"
+      ),
+      tags$li(
+        "Download GBIF or occurrence data (.xlsx) if you need to import into
+        another tool. (One of these days I'll add drawing tools to the map...)"
+      )
+    ),
+
+    div(class="limitations",
+    h3("Limitations"),
+    p("This app is useful for refining where species actually live based on
+      structured data (see Data Sources, below), but it is not perfect. First,
+      the GBIF occurrence data is based on searching names as presented in
+      ECOS against the 'GBIF backbone' taxonomy, and the matches may not be
+      expected. For example, there may be cases where a subspecies is the 
+      listed entity but GBIF only breaks out the species records. Second,
+      the text mining will pick up false positives that can make the map look
+      misleading. For example, a there may be a mention of a Fish and Wildlife 
+      Service regional office in Albuquerque, NM, in a document about 
+      Golden-cheeked Warblers from central Texas.")
+    ),
+
+    h3("Data Sources"),
+    p("There are currently two data sources for this application:"),
+    tags$ul(
+      tags$li("'Placenames,' which are the names of locations mentioned in texts 
+        (currently only 5-year reviews, but will expand as time allows) about
+        a species, matched against the",
+        tags$a(
+          href="https://geonames.usgs.gov/domestic/download_data.htm", 
+          "USGS national gazetteer",
+          target = "_blank"),
+        ", represented using the ",
+        span(style="color:red;font-weight:bold", "red circles"),
+        "; and"),
+      tags$li(
+        "Occurrence data from the Global Biodiversity Information Facility ",
+        tags$a(
+          href="https://gbif.org", 
+          "(GBIF),",
+          target = "_blank"),
+        " represented using the ",
+        span(style="color:#007CCD;font-weight:bold", "blue markers.")
+      )
+    ),
+    p("As noted in Limitations, neither the placenames nor the GBIF points
+      should be used unquestioningly. Clicking on each point will provide more
+      data about that point, which can help users deduce the point's utility.
+      For example, GBIF data for Yaqui chub indicate occurrences from eastern
+      New Mexico when the species is only found in extreme southeastern Arizona
+      and adjacent Mexico. Clicking on those records shows they are from 
+      specimens collected at Dexter National Fish Hatchery, where some Yaqui
+      chub were raised."
+    ),
+    size = "l",
+    easyClose = TRUE,
+    footer = NULL
+  ))
+})
+```
+
+Inputs {.sidebar}
+-----------------------------------------------------------------------
+
+```{r selector, echo = FALSE}
+species <- sort(unique(TECP_table$names))
+wellPanel(
+  tags$b("Data inputs"),
+  hr(),
+  selectInput(
+    "sel_species",
+    label = "Species",
+    choices = species,
+    selected = "Blackside dace (Phoxinus cumberlandensis)"
+  )
+  
+)
+
+wellPanel(
+  tags$b("Reference docs"),
+  hr(),
+  htmlOutput("fiveyr_url"),
+  htmlOutput("recovery_url")
+)
+
+wellPanel(
+  tags$b("Download Data"),
+  hr(),
+  fluidRow(
+    column(6,
+      downloadButton(
+        "download_gbif",
+        "GBIF"
+      )
+    ),
+    column(6,
+      downloadButton(
+        "download_geonames",
+        "Places"
+      )
+    )
+  )
+)
+
+wellPanel(
+  tags$b("Number of Points"),
+  hr(),
+  span(style="display:inline-flex; text-align:justify", 
+       htmlOutput("n_gbif"),
+       HTML("&nbsp"),
+       htmlOutput("n_place"))
+)
+```
+  
+```{r downloads, echo=FALSE}
+output$download_gbif <- downloadHandler(
+  filename=function() {
+    paste0(
+      gsub(cur_xref()$name, pattern = " ", replacement = "_"),
+      "_gbif.xlsx"
+    )
+  },
+  content=function(file) {
+    export(cur_gbif(), file=file)
+  }
+)
+
+output$download_geonames <- downloadHandler(
+  filename=function() {
+    paste0(
+      gsub(cur_xref()$name, pattern = " ", replacement = "_"),
+      "_places.xlsx"
+    )
+  },
+  content=function(file) {
+    export(cur_plc(), file=file)
+  }
+)
+```
+
+```{r proc_gbif_place, echo=FALSE}
+cur_ecos <- reactive(
+  if(!is.null(input$sel_species)) {
+    filter(TECP_table, names == input$sel_species)
+  } else {
+    NULL
+  }
+)
+
+cur_xref <- reactive(
+  if(!is.null(cur_ecos())) {
+    filter(spp_xref, search == cur_ecos()$species)
+  } else {
+    NULL
+  }
+)
+
+cur_gbif_q <- reactive(
+  if(!is.null(cur_ecos())) {
+    sprintf("SELECT * FROM esa_gbif WHERE taxon_key = '%s'", cur_xref()$key)
+  } else {
+    NULL
+  }
+)
+
+cur_plc_q <- reactive(
+  if(!is.null(cur_ecos())) {
+    sprintf(
+      "SELECT * FROM fiveyr_place WHERE species = '%s'", 
+      cur_ecos()$species
+    )
+  } else {
+    NULL
+  }
+)
+
+cur_gbif <- reactive(
+  if(!is.null(cur_gbif_q())) {
+    dbSendQuery(con, cur_gbif_q()) %>% 
+      dbFetch() %>%
+      filter(!is.na(dec_latitude) & dec_latitude != 0.0)
+  } else {
+    NULL    
+  }
+)
+
+cur_plc <- reactive(
+  if(!is.null(cur_plc_q())) {
+    q1 <- dbSendQuery(con, cur_plc_q()) %>% 
+      dbFetch() %>%
+      filter(prim_lat_dec != 0.0)
+    if(!("pop_place" %in% input$select_details)) {
+      q1 <- filter(q1, feature_class != "Populated Place" &
+                     feature_class != "Civil")
+    }
+    if("use_unique" %in% input$select_details) {
+      q1 <- distinct(q1, terms, county_name, species, .keep_all = TRUE)
+    }
+    q1
+  } else {
+    NULL    
+  }
+)
+```
+
+```{r num_records}
+output$n_gbif <- renderText({
+  ifelse(
+    "gbif" %in% input$select_opts,
+    paste0("<b style='color:#007CCD'>GBIF:</b> ", dim(cur_gbif())[1]),
+    "<b style='color:#007CCD'>GBIF:</b> 0"
+  )
+})
+
+output$n_place <- renderText({
+  ifelse(
+    "place" %in% input$select_opts,
+    paste0("<b style='color:red;'>places:</b> ", 
+           dim(cur_plc())[1]),
+    "<b style='color:red'>places:</b> 0"
+  )
+})
+
+```
+
+```{r docs_proc, echo=FALSE}
+output$fiveyr_url <- reactive({
+  href <- filter(fiveyr_table, Species == cur_ecos()$species)$Doc_Link 
+  if(length(href) == 1) {
+    paste0(tags$a("Five-year Review", href = href, target = "_blank"))
+  } else {
+    p("No document available.")
+  }
+})
+
+output$recovery_url <- reactive({
+  href <- filter(recovery_table, Species == cur_ecos()$species)$Doc_Link 
+  paste0(tags$a("Recovery Plan", href = href, target = "_blank"))
+})
+```
+
+Row {data-height=1000}
+-----------------------------------------------------------------------
+
+### 
+```{r map, echo=FALSE}
+renderLeaflet({
+  map1 <- leaflet(data = cur_gbif()) %>%
+    addProviderTiles(provider = input$sel_basemap)
+  
+  if("place" %in% input$select_opts) {
+    map1 <- map1 %>%
+      addCircleMarkers(
+        lng = cur_plc()$prim_long_dec,
+        lat = cur_plc()$prim_lat_dec,
+        radius = 5,
+        weight = 1,
+        opacity = 0.3,
+        color = "red",
+        popup = ~paste0(
+          "<p style='font-weight:700;color:red'>Placename Mention</p>",
+          "<b>Term:</b> ", cur_plc()$terms, "<br>",
+          "<b>Feature class:</b> ", cur_plc()$feature_class, "<br>",
+          "<b>Long & Lat:</b><br>",
+          cur_plc()$prim_long_dec, ", ",
+          cur_plc()$prim_lat_dec)
+      )
+  }
+  
+  if("gbif" %in% input$select_opts) {
+    map1 <- map1 %>%
+      addMarkers(
+        lng = cur_gbif()$dec_longitude,
+        lat = cur_gbif()$dec_latitude,
+        popup = ~paste0(
+          "<p style='font-weight:700;color:#007CCD'>GBIF Occurrence</p>",
+          "<b>Date:</b> ", as.Date(cur_gbif()$date, origin = "1970-01-01"),
+          "<br>",
+          "<b>Locality:</b> ", cur_gbif()$locality, "<br>",
+          "<b>Long & Lat:</b><br>",
+          cur_gbif()$dec_longitude, ", ",
+          cur_gbif()$dec_latitude,
+          "<br><b style='color:red'>Coord. issue:</b> ",
+          cur_gbif()$issues, "<br>")
+      )
+  }
+  map1
+})
+```
+
+```{r map_ctrl, echo=FALSE}
+absolutePanel(
+  id = "mapcontrols",
+  class = "float_panel",
+  top = "100px",
+  right = "50px",
+  left = "25%",
+  bottom = "auto",
+  fixed = TRUE,
+  draggable = FALSE,
+  
+  box(
+    column(3,
+      checkboxGroupInput(
+        "select_opts",
+        "Layers",
+        choiceNames = 
+          list(HTML("<span style='color:red;font-weight:700'>placenames</span>"), 
+               HTML("<span style='color:#007CCD;font-weight:700'>GBIF</span>")
+          ),
+               # "counties"),
+        choiceValues = 
+          list("place", "gbif"), #, "counties"),
+        selected = c("place", "gbif")
+      )
+    ),
+    column(3, 
+      checkboxGroupInput(
+        "select_details",
+        "Details",
+        choiceNames = 
+          list("Incl. populated places?", "Use unique?"),
+        choiceValues = 
+          list("pop_place", "use_unique"),
+        selected = c("pop_place")
+      ),
+      bsTooltip(
+        id = "select_details", 
+        title = "Populated places may often be false-positives<br><br>Unique species-location combinations to reduce # points"
+      )
+    ),
+    column(3,
+      selectInput(
+        "sel_basemap",
+        label = "Basemap",
+        width = "125px",
+        choices = list(
+          "Terrain" = "Stamen.Terrain",
+          "Basic" = "Stamen.TonerLite",
+          "Imagery" = "Esri.WorldImagery"
+        ),
+        selected = "StamenTerrain"
+      )
+    ),
+    column(3),
+    title = NULL,
+    width = 12
+  )
+)
+```
+
+```{r help, echo=FALSE}
+absolutePanel(
+  id = "help",
+  class = "help_panel",
+  top = "auto",
+  right = "50px",
+  left = "auto",
+  bottom = "75px",
+  fixed = TRUE,
+  draggable = FALSE,
+  
+  actionButton(
+    "help",
+    "Help",
+    icon = icon("question-circle"),
+    class = "help_btn"
+  )
+)
+```

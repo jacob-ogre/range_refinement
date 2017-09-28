@@ -4,7 +4,7 @@ library(RSQLite)
 
 #############################################################################
 # Prep the GBIF data
-esa_occ <- readRDS("data/ESA_spp_GBIF-2017-09-25.rds")
+esa_occ <- readRDS("data/ESA_spp_GBIF-2017-09-27.rds")
 
 con <- dbConnect(RSQLite::SQLite(), "data/ESA_GBIF.sqlite3")
 dbListTables(con)

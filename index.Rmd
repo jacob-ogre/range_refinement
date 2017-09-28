@@ -158,10 +158,12 @@ wellPanel(
     "Layers",
     choiceNames = 
       list(HTML("<span style='color:red;font-weight:700'>placenames</span>"), 
-           HTML("<span style='color:#007CCD;font-weight:700'>GBIF</span>"), 
-           "counties"),
+           # HTML("<span style='color:#007CCD;font-weight:700'>GBIF</span>"), 
+           HTML("<span style='color:#007CCD;font-weight:700'>GBIF</span>")
+      ),
+           # "counties"),
     choiceValues = 
-      list("place", "gbif", "counties"),
+      list("place", "gbif"), #, "counties"),
     selected = c("place", "gbif")
   ),
 
@@ -169,14 +171,14 @@ wellPanel(
     "select_details",
     "Details",
     choiceNames = 
-      list("Incl. populated places?"),
+      list("Incl. populated places?", "Use unique?"),
     choiceValues = 
-      list("pop_place"),
+      list("pop_place", "use_unique"),
     selected = c("pop_place")
   ),
   bsTooltip(
     id = "select_details", 
-    title = "Populated places tend to have more false-positives"
+    title = "Populated places may often be false-positives<br><br>Unique species-location combinations to reduce # points"
   )
 )
 
@@ -209,7 +211,10 @@ wellPanel(
 wellPanel(
   tags$b("Number of Points"),
   hr(),
-  htmlOutput("num_recs")
+  span(style="display:inline-flex; text-align:justify", 
+       htmlOutput("n_gbif"),
+       HTML("&nbsp"),
+       htmlOutput("n_place"))
 )
 ```
   
@@ -294,6 +299,9 @@ cur_plc <- reactive(
       q1 <- filter(q1, feature_class != "Populated Place" &
                      feature_class != "Civil")
     }
+    if("use_unique" %in% input$select_details) {
+      q1 <- distinct(q1, terms, county_name, species, .keep_all = TRUE)
+    }
     q1
   } else {
     NULL    
@@ -302,27 +310,20 @@ cur_plc <- reactive(
 ```
 
 ```{r num_records}
-n_gbif <- reactive({
+output$n_gbif <- renderText({
   ifelse(
     "gbif" %in% input$select_opts,
-    dim(cur_gbif())[1],
-    0
+    paste0("<b style='color:#007CCD'>GBIF:</b> ", dim(cur_gbif())[1]),
+    "<b style='color:#007CCD'>GBIF:</b> 0"
   )
 })
 
-n_place <- reactive(
+output$n_place <- renderText({
   ifelse(
     "place" %in% input$select_opts,
-    dim(cur_plc())[1],
-    0
-  )
-)
-
-output$num_recs <- renderText({
-  paste(
-    "<p style='font-size:larger'>",
-    n_gbif() + n_place(),
-    "</p>"
+    paste0("<b style='color:red;'>places:</b> ", 
+           dim(cur_plc())[1]),
+    "<b style='color:red'>places:</b> 0"
   )
 })
 
@@ -331,7 +332,11 @@ output$num_recs <- renderText({
 ```{r docs_proc, echo=FALSE}
 output$fiveyr_url <- reactive({
   href <- filter(fiveyr_table, Species == cur_ecos()$species)$Doc_Link 
-  paste0(tags$a("Five-year Review", href = href, target = "_blank"))
+  if(length(href) == 1) {
+    paste0(tags$a("Five-year Review", href = href, target = "_blank"))
+  } else {
+    p("No document available.")
+  }
 })
 
 output$recovery_url <- reactive({
@@ -347,7 +352,7 @@ Row {data-height=1000}
 ```{r map, echo=FALSE}
 renderLeaflet({
   map1 <- leaflet(data = cur_gbif()) %>%
-    addProviderTiles(provider = input$sel_basemap) 
+    addProviderTiles(provider = input$sel_basemap)
   
   if("place" %in% input$select_opts) {
     map1 <- map1 %>%
