@@ -7,19 +7,17 @@ output:
     social: menu
     df_print: paged
     navbar:
-      - {title: "CCI", align: left, href: "https://cci-dev.org", target: "_blank"}
+      - {title: "CCI", align: left, href: "https://defenders-cci.org", target: "_blank"}
       - {title: "Defenders", align: left, href: "http://www.defenders.org"}
-      - {title: "", icon: "fa-envelope-o fa-lg", align: right, href: "mailto:esa@defenders.org?subject=species mapper"}
+      - {title: "", icon: "fa-envelope-o fa-lg", align: right, href: "mailto:cci@defenders.org?subject=species mapper"}
       - {title: "", icon: "fa-github fa-lg", align: right, href: "https://github.com/jacob-ogre/ESA_species_maps"}
 runtime: shiny
 ---
 
 ```{r setup, include=FALSE}
 
-# library(bsplus)
 library(DBI)
 library(dplyr)
-# library(ecosscraper)
 library(leaflet)
 library(rio)
 library(RSQLite)
@@ -143,6 +141,12 @@ Inputs {.sidebar}
 
 ```{r selector, echo = FALSE}
 species <- sort(unique(TECP_table$names))
+wellPanel(
+  tags$b("About"),
+  p(style="font-size:small;font-family:sans-serif", "A small app that combines GBIF records with placenames extracted from 
+    texts of ESA regulatory documents.")
+)
+
 wellPanel(
   tags$b("Data inputs"),
   hr(),
