@@ -7,10 +7,10 @@ output:
     social: menu
     df_print: paged
     navbar:
-      - {title: "CCI", align: left, href: "https://cci-dev.org", target: "_blank"}
+      - {title: "CCI", align: left, href: "https://defenders-cci.org", target: "_blank"}
       - {title: "Defenders", align: left, href: "http://www.defenders.org"}
-      - {title: "", icon: "fa-envelope-o fa-lg", align: right, href: "mailto:esa@defenders.org?subject=species mapper"}
-      - {title: "", icon: "fa-github fa-lg", align: right, href: "https://github.com/jacob-ogre/ESA_species_maps"}
+      - {title: "", icon: "fa-envelope-o fa-lg", align: right, href: "mailto:cci@defenders.org?subject=species mapper"}
+      - {title: "", icon: "fa-github fa-lg", align: right, href: "https://github.com/jacob-ogre/range_refinement"}
 runtime: shiny
 ---
 

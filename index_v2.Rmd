@@ -92,7 +92,7 @@ observeEvent(input$help, {
       expected. For example, there may be cases where a subspecies is the 
       listed entity but GBIF only breaks out the species records. Second,
       the text mining will pick up false positives that can make the map look
-      misleading. For example, a there may be a mention of a Fish and Wildlife 
+      misleading. For example, there may be a mention of a Fish and Wildlife 
       Service regional office in Albuquerque, NM, in a document about 
       Golden-cheeked Warblers from central Texas.")
     ),
@@ -120,7 +120,8 @@ observeEvent(input$help, {
         span(style="color:#007CCD;font-weight:bold", "blue markers.")
       )
     ),
-    p("As noted in Limitations, neither the placenames nor the GBIF points
+    p(
+      "As noted in Limitations, neither the placenames nor the GBIF points
       should be used unquestioningly. Clicking on each point will provide more
       data about that point, which can help users deduce the point's utility.
       For example, GBIF data for Yaqui chub indicate occurrences from eastern
@@ -143,8 +144,9 @@ Inputs {.sidebar}
 species <- sort(unique(TECP_table$names))
 wellPanel(
   tags$b("About"),
-  p(style="font-size:small;font-family:sans-serif", "A small app that combines GBIF records with placenames extracted from 
-    texts of ESA regulatory documents.")
+  p(style="font-size:small;font-family:sans-serif", 
+    "A small app that combines GBIF records with placenames extracted from 
+    texts of ESA regulatory documents to approximate a species' range.")
 )
 
 wellPanel(
